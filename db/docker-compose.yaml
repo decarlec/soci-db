@@ -1,0 +1,14 @@
+services:
+  neo4j:
+    image: neo4j:latest
+    volumes:
+        - ./neo4j_database/neo4j.conf:/conf/neo4j.conf
+        - ./neo4j_database/data/server1:/data
+        - ./neo4j_database/logs/server1:/logs
+        - ./neo4j_database/conf/server1:/conf
+        - ./neo4j_database/import/server1:/import
+    environment:
+        - NEO4J_AUTH=neo4j/password@
+    ports:
+      - "7474:7474"
+      - "7687:7687"
