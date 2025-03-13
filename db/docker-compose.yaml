@@ -8,7 +8,13 @@ services:
         - ./neo4j_database/conf/server1:/conf
         - ./neo4j_database/import/server1:/import
     environment:
-        - NEO4J_AUTH=neo4j/password@
+        - NEO4J_AUTH_FILE=/run/secrets/neo4j_auth_file
     ports:
       - "7474:7474"
       - "7687:7687"
+    restart: always
+    secrets:
+      - neo4j_auth_file
+secrets:
+  neo4j_auth_file:
+    file: ./auth
