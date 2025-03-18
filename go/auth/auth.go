@@ -11,14 +11,10 @@ import (
 
 var dbName = "neo4j"
 
-func login(username string, password string) {
+func Login(username string, password string) {
 	var ctx = context.Background()
-	var driver = database.Get_db_connection(ctx)
-
-	err := driver.VerifyConnectivity(ctx)
-	if err != nil {
-		panic(err)
-	}
+	var driver = database.Init_driver(ctx)
+	defer driver.Close(ctx)
 
 	// get user
 	result, err := neo4j.ExecuteQuery(ctx, driver,

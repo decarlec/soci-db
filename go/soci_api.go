@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"golang.org/x/crypto/bcrypt"
+	"sociapi.com/main/auth"
+	"sociapi.com/main/database"
 )
 
 var driver neo4j.DriverWithContext
@@ -15,14 +17,19 @@ var ctx context.Context
 const dbName string = "neo4j"
 
 func main() {
-
 	user := "cdawg"
+	ctx = context.Background()
+	driver = database.Init_driver(ctx)
+	defer driver.Close(ctx)
+
 	err := delete_user(user)
 	if err != nil {
 		fmt.Printf("User '%v' did not delete. error: %v", user, err)
 	}
 
 	create_user("cdawg", "dawg@dawg.com", "dawg")
+
+	auth.Login("dawg", "dawg")
 }
 
 func hash_pwd(password string) ([]byte, error) {
@@ -41,6 +48,9 @@ func delete_user(username string) error {
 		neo4j.EagerResultTransformer,
 		neo4j.ExecuteQueryWithDatabase(dbName))
 
+	if err != nil {
+		return err
+	}
 	summary := result.Summary
 	fmt.Printf("Deleted %v user nodes in %+v.\n",
 		summary.Counters().NodesDeleted(),

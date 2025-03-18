@@ -7,7 +7,14 @@ import (
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
 
-func Get_db_connection(ctx context.Context) neo4j.DriverWithContext {
+// Encapsulates teh Neo4j driver and provides CRUD functionality
+type Database struct {
+	driver neo4j.DriverWithContext
+}
+
+func NewDatabase(driver neo4j.DriverWithContext) *Database {
+	return &Database{driver: driver}
+}
 	//Connect
 	fmt.Println("Starting soci_api...")
 	dbUri := "neo4j://localhost:7687"
@@ -24,8 +31,6 @@ func Get_db_connection(ctx context.Context) neo4j.DriverWithContext {
 	if err != nil {
 		panic(err)
 	}
-	defer driver.Close(ctx)
 	fmt.Println("Database connection established.")
-
 	return driver
 }
