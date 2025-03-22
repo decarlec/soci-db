@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -18,9 +19,13 @@ import (
 
 	"sociapi.com/main/auth"
 	"sociapi.com/main/database"
+	"sociapi.com/main/test"
 )
 
 func main() {
+	//Setup logging
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	//Load up env
 	err := godotenv.Load()
 	if err != nil {
@@ -40,7 +45,7 @@ func main() {
 	googleClientId := os.Getenv("GOOGLE_CLIENT_ID")
 	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 
-	goth.UseProviders(google.New(googleClientId, googleClientSecret, "http://localhost:3000/auth/google/callback", "read"))
+	goth.UseProviders(google.New(googleClientId, googleClientSecret, "http://localhost:3000/auth/callback?provider=google"))
 
 	// Spin up chi
 	r := chi.NewRouter()
@@ -59,33 +64,47 @@ func main() {
 		}
 	})
 
-	r.HandleFunc("/auth/{provider}/authorize", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/", func(writer http.ResponseWriter, request *http.Request) {
+		t, _ := template.New("foo").Parse(indexTemplate)
+		t.Execute(writer, nil)
+	})
+
+	r.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
 		gothic.BeginAuthHandler(w, r)
 	})
 
-	r.HandleFunc("/auth/{provider}/callback", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/auth/callback", func(w http.ResponseWriter, r *http.Request) {
 		gothUser, err := gothic.CompleteUserAuth(w, r)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 		}
 
-		appUser, err := findOrCreateUser(gothUser)
+		//appUser, err := findOrCreateUser(gothUser)
+
+		log.Printf("creating user: %v", gothUser)
 
 		refresh, access, err := create_tokens(gothUser, w)
-
+		if err != nil {
+			panic(err)
+		}
+		t, _ := template.New("foo").Parse(userTemplate)
 		w.Write([]byte(refresh))
+		w.Write([]byte(access))
+		t.Execute(w, gothUser)
 	})
+
+	test.Create_user_and_login(db, auth)
 
 	http.ListenAndServe(":3000", r)
 }
 
-func findOrCreateUser(db database.Database, gothUser goth.User) (*database.User, error) {
-	appUser := db.GetUser(context.Background())
-}
+// func findOrCreateUser(db database.Database, gothUser goth.User) (*database.User, error) {
+// 	appUser := db.GetUser(context.Background())
+// }
 
-func findOrCreateUser(db database.Database, user database.User) (*database.User, error) {
-	appUser := db.CreateUser(context.Background(), user)
-}
+// func findOrCreateUser(db database.Database, user database.User) (*database.User, error) {
+// 	appUser := db.CreateUser(context.Background(), user)
+// }
 
 func create_tokens(user goth.User, w http.ResponseWriter) ([]byte, []byte, error) {
 	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
@@ -129,3 +148,21 @@ func get_db_driver(ctx context.Context) neo4j.DriverWithContext {
 	fmt.Println("Database connection established.")
 	return driver
 }
+
+// Note that the URLs to authenticate with the various providers are different as
+// well.
+var indexTemplate = `
+<p><a href="/auth?provider=twitter">Log in with Twitter</a></p>
+<p><a href="/auth?provider=facebook">Log in with Facebook</a></p>
+<p><a href="/auth?provider=google">Log in with Google</a></p>
+`
+
+var userTemplate = `
+<p>Name: {{.Name}}</p>
+<p>Email: {{.Email}}</p>
+<p>NickName: {{.NickName}}</p>
+<p>Location: {{.Location}}</p>
+<p>AvatarURL: {{.AvatarURL}} <img src="{{.AvatarURL}}"></p>
+<p>Description: {{.Description}}</p>
+<p>UserID: {{.UserID}}</p>
+<p>AccessToken: {{.AccessToken}}</p>`

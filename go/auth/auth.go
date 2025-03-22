@@ -27,7 +27,7 @@ func NewAuthService(db database.Database) *AuthService {
 
 func (authService *AuthService) Login(ctx context.Context, username string, password string) error {
 
-	user, err := authService.db.GetUser(ctx, username)
+	user, err := authService.db.GetUserWithName(ctx, username)
 	if err != nil {
 		return err
 	}

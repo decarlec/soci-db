@@ -2,9 +2,12 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
+	"github.com/markbates/goth"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -14,11 +17,21 @@ type Database struct {
 	driver neo4j.DriverWithContext
 }
 
+type PasswordHash string
+
+func NewPasswordHash(password string) PasswordHash {
+	hashString, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	return PasswordHash(hashString)
+}
+
 type User struct {
 	Id           string
 	Username     string
 	Email        string
-	PasswordHash string
+	PasswordHash PasswordHash
 	//CreatedAt            neo4j.Time
 	ExternalAuthProvider string
 	ExternalAuthID       string
@@ -42,18 +55,20 @@ func (db *Database) CreateUser(ctx context.Context, user User) error {
 			id: $id,
 			username: $username,
 			email: $email,
-			password_hash: $password_hash
+			password_hash: $password_hash,
+			external_auth_provider: $external_auth_provider,
+			external_auth_id: $external_auth_id
 		}) 
 		RETURN u`,
 
 		map[string]any{
 			"id":            uuid.New().String(),
-			"username":      username,
-			"email":         email,
-			"password_hash": string(hashed_pwd),
+			"username":      user.Username,
+			"email":         user.Email,
+			"password_hash": string(user.PasswordHash),
 			//			"created_at": time.Now(),
-			"external_auth_provider": authProvider,
-			"external_auth_id":       authId,
+			"external_auth_provider": user.ExternalAuthProvider, //Auth provider eg. google
+			"external_auth_id":       user.ExternalAuthID,       //Auth provider user id
 		})
 
 	if err != nil {
@@ -88,17 +103,45 @@ func (db *Database) DeleteUser(ctx context.Context, username string) error {
 	return result.Err()
 }
 
-func (db *Database) GetUser(ctx context.Context, username string) (User, error) {
+func (db *Database) GetGothicUser(ctx context.Context, user goth.User) (*User, error) {
 	session := db.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
 	defer session.Close(ctx)
 
-	fmt.Println("Getting User")
+	result, err := session.Run(ctx,
+		`MATCH (u:User {
+			external_auth_provider: $external_auth_provider
+			external_auth_id: $external_auth_id
+		})
+		RETURN u`,
+		map[string]any{
+			"external_auth_provider": user.Provider,
+			"external_auth_id":       user.UserID,
+		})
+
+	if err != nil {
+		panic(err)
+	}
+
+	if result.Next(ctx) {
+		record := result.Record()
+
+		return decodeUserResult(record)
+	}
+	return nil, result.Err()
+
+}
+
+func (db *Database) GetUserWithName(ctx context.Context, username string) (*User, error) {
+	session := db.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+
+	log.Println("Get User With Name")
 
 	result, err := session.Run(ctx,
 		`MATCH (u:User {
 			username: $username
 		})
-		RETURN u.id AS id, u.username as username, u.password_hash as password_hash, u.email as email`,
+		RETURN u`,
 		map[string]any{
 			"username": username,
 		})
@@ -110,36 +153,48 @@ func (db *Database) GetUser(ctx context.Context, username string) (User, error) 
 	if result.Next(ctx) {
 		record := result.Record()
 
-		id, ok := record.Get("id")
-		if !ok {
-			panic("could not decode id from database")
-		}
-
-		username, ok := record.Get("username")
-		if !ok {
-			panic("could not decode username from database")
-		}
-
-		email, ok := record.Get("email")
-		if !ok {
-			panic("could not decode email from database")
-		}
-
-		passwordHash, ok := record.Get("password_hash")
-		if !ok {
-			panic("could not decode password hash from the database")
-		}
-
-		return User{
-			Id:           id.(string),
-			Username:     username.(string),
-			Email:        email.(string),
-			PasswordHash: passwordHash.(string),
-		}, nil
+		return decodeUserResult(record)
 	}
-	return User{}, result.Err()
+	return nil, result.Err()
 }
 
-func hash_pwd(password string) ([]byte, error) {
-	return bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+func decodeUserResult(record *neo4j.Record) (*User, error) {
+	id, ok := record.Get("id")
+	if !ok {
+		return nil, errors.New("could not decode id from database")
+	}
+
+	username, ok := record.Get("username")
+	if !ok {
+		return nil, errors.New("could not decode username from database")
+	}
+
+	email, ok := record.Get("email")
+	if !ok {
+		return nil, errors.New("could not decode email from database")
+	}
+
+	passwordHash, ok := record.Get("password_hash")
+	if !ok {
+		return nil, errors.New("could not decode password hash from the database")
+	}
+
+	external_auth_provider, ok := record.Get("external_auth_provider")
+	if !ok {
+		return nil, errors.New("could not decode auth provider the database")
+	}
+
+	external_auth_id, ok := record.Get("external_auth_id")
+	if !ok {
+		return nil, errors.New("could not decode auth id from the database")
+	}
+
+	return &User{
+		Id:                   id.(string),
+		Username:             username.(string),
+		Email:                email.(string),
+		PasswordHash:         PasswordHash(passwordHash.(string)),
+		ExternalAuthProvider: external_auth_provider.(string),
+		ExternalAuthID:       external_auth_id.(string),
+	}, nil
 }
