@@ -19,24 +19,24 @@ type User struct {
 	Username     string
 	Email        string
 	PasswordHash string
+	//CreatedAt            neo4j.Time
+	ExternalAuthProvider string
+	ExternalAuthID       string
+	AccessToken          string
+	RefreshToken         string
 }
 
 func NewDatabase(driver neo4j.DriverWithContext) *Database {
 	return &Database{driver: driver}
 }
 
-func (db *Database) CreateUser(ctx context.Context, username string, password string, email string) error {
+func (db *Database) CreateUser(ctx context.Context, user User) error {
 	session := db.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
 	//TODO: ensure unique usernames/emails?
 
 	//Hash the users password.
-	hashed_pwd, err := hash_pwd(password)
-	if err != nil {
-		panic(err)
-	}
-
 	result, err := session.Run(ctx,
 		`CREATE (u:User {
 			id: $id,
@@ -51,6 +51,9 @@ func (db *Database) CreateUser(ctx context.Context, username string, password st
 			"username":      username,
 			"email":         email,
 			"password_hash": string(hashed_pwd),
+			//			"created_at": time.Now(),
+			"external_auth_provider": authProvider,
+			"external_auth_id":       authId,
 		})
 
 	if err != nil {
