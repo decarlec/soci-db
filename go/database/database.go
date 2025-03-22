@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/markbates/goth"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
+	"github.com/neo4j/neo4j-go-driver/v5/neo4j/dbtype"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -43,11 +44,16 @@ func NewDatabase(driver neo4j.DriverWithContext) *Database {
 	return &Database{driver: driver}
 }
 
-func (db *Database) CreateUser(ctx context.Context, user User) error {
+func (db *Database) CreateUser(ctx context.Context, user User) (*User, error) {
 	session := db.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
-	//TODO: ensure unique usernames/emails?
+	//Get user in shape!
+	if user.Id == "" {
+		user.Id = uuid.NewString()
+	}
+
+	//TODO: check if username exists to ensure unique usernames/emails?
 
 	//Hash the users password.
 	result, err := session.Run(ctx,
@@ -62,7 +68,7 @@ func (db *Database) CreateUser(ctx context.Context, user User) error {
 		RETURN u`,
 
 		map[string]any{
-			"id":            uuid.New().String(),
+			"id":            user.Id,
 			"username":      user.Username,
 			"email":         user.Email,
 			"password_hash": string(user.PasswordHash),
@@ -77,8 +83,9 @@ func (db *Database) CreateUser(ctx context.Context, user User) error {
 
 	if result.Next(ctx) {
 		fmt.Printf("Created user: %v", result.Record())
+		return &user, nil
 	}
-	return result.Err()
+	return nil, result.Err()
 }
 
 func (db *Database) DeleteUser(ctx context.Context, username string) error {
@@ -138,10 +145,10 @@ func (db *Database) GetUserWithName(ctx context.Context, username string) (*User
 	log.Println("Get User With Name")
 
 	result, err := session.Run(ctx,
-		`MATCH (u:User {
+		`MATCH (user:User {
 			username: $username
 		})
-		RETURN u`,
+		RETURN user`,
 		map[string]any{
 			"username": username,
 		})
@@ -150,51 +157,28 @@ func (db *Database) GetUserWithName(ctx context.Context, username string) (*User
 		panic(err)
 	}
 
-	if result.Next(ctx) {
-		record := result.Record()
-
-		return decodeUserResult(record)
+	record, err := result.Single(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return nil, result.Err()
+
+	return decodeUserResult(record)
 }
 
 func decodeUserResult(record *neo4j.Record) (*User, error) {
-	id, ok := record.Get("id")
+	userRecord, ok := record.Get("user")
 	if !ok {
-		return nil, errors.New("could not decode id from database")
+		return nil, errors.New("could not get user record")
 	}
 
-	username, ok := record.Get("username")
-	if !ok {
-		return nil, errors.New("could not decode username from database")
-	}
-
-	email, ok := record.Get("email")
-	if !ok {
-		return nil, errors.New("could not decode email from database")
-	}
-
-	passwordHash, ok := record.Get("password_hash")
-	if !ok {
-		return nil, errors.New("could not decode password hash from the database")
-	}
-
-	external_auth_provider, ok := record.Get("external_auth_provider")
-	if !ok {
-		return nil, errors.New("could not decode auth provider the database")
-	}
-
-	external_auth_id, ok := record.Get("external_auth_id")
-	if !ok {
-		return nil, errors.New("could not decode auth id from the database")
-	}
+	userAttributes := userRecord.(dbtype.Node).Props
 
 	return &User{
-		Id:                   id.(string),
-		Username:             username.(string),
-		Email:                email.(string),
-		PasswordHash:         PasswordHash(passwordHash.(string)),
-		ExternalAuthProvider: external_auth_provider.(string),
-		ExternalAuthID:       external_auth_id.(string),
+		Id:                   userAttributes["id"].(string),
+		Username:             userAttributes["username"].(string),
+		Email:                userAttributes["email"].(string),
+		PasswordHash:         PasswordHash(userAttributes["password_hash"].(string)),
+		ExternalAuthProvider: userAttributes["external_auth_provider"].(string),
+		ExternalAuthID:       userAttributes["external_auth_id"].(string),
 	}, nil
 }
