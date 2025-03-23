@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 
 	"github.com/google/uuid"
@@ -82,7 +81,7 @@ func (db *Database) CreateUser(ctx context.Context, user User) (*User, error) {
 	}
 
 	if result.Next(ctx) {
-		fmt.Printf("Created user: %v", result.Record())
+		log.Printf("Created user: %v", result.Record())
 		return &user, nil
 	}
 	return nil, result.Err()
@@ -105,7 +104,7 @@ func (db *Database) DeleteUser(ctx context.Context, username string) error {
 		panic(err)
 	}
 
-	fmt.Printf("deleted user %v", username)
+	log.Printf("deleted user: %v", username)
 
 	return result.Err()
 }
@@ -115,11 +114,11 @@ func (db *Database) GetGothicUser(ctx context.Context, user goth.User) (*User, e
 	defer session.Close(ctx)
 
 	result, err := session.Run(ctx,
-		`MATCH (u:User {
-			external_auth_provider: $external_auth_provider
+		`MATCH (user:User {
+			external_auth_provider: $external_auth_provider,
 			external_auth_id: $external_auth_id
 		})
-		RETURN u`,
+		RETURN user`,
 		map[string]any{
 			"external_auth_provider": user.Provider,
 			"external_auth_id":       user.UserID,
@@ -129,13 +128,12 @@ func (db *Database) GetGothicUser(ctx context.Context, user goth.User) (*User, e
 		panic(err)
 	}
 
-	if result.Next(ctx) {
-		record := result.Record()
-
-		return decodeUserResult(record)
+	record, err := result.Single(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return nil, result.Err()
 
+	return decodeUserResult(record)
 }
 
 func (db *Database) GetUserWithName(ctx context.Context, username string) (*User, error) {

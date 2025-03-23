@@ -2,7 +2,7 @@ package setup
 
 import (
 	"context"
-	"fmt"
+	"log"
 
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"
 )
@@ -22,6 +22,6 @@ func Get_db_driver(ctx context.Context) neo4j.DriverWithContext {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Database connection established.")
+	log.Println("Database connection established.")
 	return driver
 }

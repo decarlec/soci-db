@@ -30,7 +30,3 @@ func Create_user_and_login(db *database.Database, auth *auth.AuthService) {
 	log.Println("logging in")
 	auth.Login(context.Background(), username, password)
 }
-
-func Create_and_get_user(db *database.Database) {
-	//user, err := db.CreateUser(context.Background(), database.User{Username: "test", PasswordHash: database.NewPasswordHash("supersecret"), Email: "dawg@dawg.com"})
-}

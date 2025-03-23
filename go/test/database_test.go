@@ -21,8 +21,8 @@ func TestCreateUser(t *testing.T) {
 	defer driver.Close(ctx)
 	username := "test"
 
-	//Delete user just in case
-	db.DeleteUser(ctx, username)
+	//Clean up user
+	defer db.DeleteUser(ctx, username)
 
 	//Create user
 	expected := database.User{
@@ -44,5 +44,26 @@ func TestCreateUser(t *testing.T) {
 
 	if !reflect.DeepEqual(&expected, actual) {
 		t.Errorf("Created user did not match expected user: \r\n Expected: %v \r\n Actual: %v", expected, actual)
+	}
+}
+
+func TestCreateAndGetGothicUser(t *testing.T) {
+	driver = setup.Get_db_driver(ctx)
+	db = database.NewDatabase(driver)
+	defer driver.Close(ctx)
+
+	username := "gothicTest"
+
+	//Clean up user
+	defer db.DeleteUser(ctx, username)
+
+	//Create user
+	expected := database.User{
+		Id:       uuid.NewString(),
+		Username: username,
+	}
+	user, err := db.CreateUser(ctx, expected)
+	if err != nil || user == nil {
+		panic(err)
 	}
 }

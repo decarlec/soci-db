@@ -2,19 +2,17 @@ package auth
 
 import (
 	"context"
-	"fmt"
+	"log"
+	"net/http"
+	"os"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/markbates/goth"
 	"golang.org/x/crypto/bcrypt"
 	"sociapi.com/main/database"
 )
 
 var dbName = "neo4j"
-
-const (
-	key    = "superSecretAuthKey"
-	MaxAge = 86400 * 30 // 30 days
-	IsProd = false
-)
 
 type AuthService struct {
 	db database.Database
@@ -31,15 +29,39 @@ func (authService *AuthService) Login(ctx context.Context, username string, pass
 	if err != nil {
 		return err
 	}
-	fmt.Println(user.Username)
+	log.Println(user.Username)
 
-	fmt.Println(user.PasswordHash)
+	log.Println(user.PasswordHash)
 
 	//check hash against password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return err
 	}
 
-	fmt.Println("Successfull login")
+	log.Println("Successfull login")
 	return nil
+}
+
+func (authService *AuthService) GenerateTokens(user goth.User, w http.ResponseWriter) ([]byte, []byte, error) {
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"email": user.Email,
+	})
+
+	refreshTokenString, err := refreshToken.SignedString([]byte(os.Getenv("REFRESH_TOKEN_SECRET")))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return nil, nil, err
+	}
+
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"email": user.Email,
+	})
+
+	accessTokenString, err := accessToken.SignedString([]byte(os.Getenv("ACCESS_TOKEN_SECRET")))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return nil, nil, err
+	}
+
+	return []byte(refreshTokenString), []byte(accessTokenString), nil
 }

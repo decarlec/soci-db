@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/lpernett/godotenv"
 	"github.com/markbates/goth"
@@ -57,9 +56,22 @@ func main() {
 		w.Write([]byte("welcome"))
 	})
 
-	//THIS IS A TOTALLY VALID AND SECURE WAY TO LOGIN
-	r.Get("/login/{user}/{password}", func(w http.ResponseWriter, r *http.Request) {
-		err := auth.Login(r.Context(), r.PathValue("user"), r.PathValue("password"))
+	//root
+	r.Get("/", func(writer http.ResponseWriter, request *http.Request) {
+		t, _ := template.New("foo").Parse(indexTemplate)
+		t.Execute(writer, nil)
+	})
+
+	//setup static file serving
+	fs := http.FileServer(http.Dir("static"))
+	r.Handle("/static/*", http.StripPrefix("/static", fs))
+
+	//Basic auth login
+	r.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Redirect(w, r, "/", http.StatusFound)
+		}
+		err := auth.Login(r.Context(), r.FormValue("username"), r.FormValue("password"))
 		if err != nil {
 			http.Error(w, "Auth failed 😿", http.StatusUnauthorized)
 		} else {
@@ -67,11 +79,7 @@ func main() {
 		}
 	})
 
-	r.Get("/", func(writer http.ResponseWriter, request *http.Request) {
-		t, _ := template.New("foo").Parse(indexTemplate)
-		t.Execute(writer, nil)
-	})
-
+	// Goth (external auth providers)
 	r.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
 		gothic.BeginAuthHandler(w, r)
 	})
@@ -88,10 +96,12 @@ func main() {
 			panic(err)
 		}
 
-		refresh, access, err := create_tokens(gothUser, w)
+		refresh, access, err := auth.GenerateTokens(gothUser, w)
 		if err != nil {
 			panic(err)
 		}
+		log.Println(refresh)
+		log.Println(access)
 		t, _ := template.New("foo").Parse(userTemplate)
 		w.Write([]byte(refresh))
 		w.Write([]byte(access))
@@ -105,9 +115,10 @@ func main() {
 		t.Execute(w, gothUser)
 	})
 
-	http.ListenAndServe(":3000", r)
+	http.ListenAndServe("localhost:3000", r)
 }
 
+// Create a gothic user,
 func findOrCreateUser(ctx context.Context, db *database.Database, gothUser goth.User) (*database.User, error) {
 	appUser, err := db.GetGothicUser(ctx, gothUser)
 	if err != nil {
@@ -126,36 +137,29 @@ func findOrCreateUser(ctx context.Context, db *database.Database, gothUser goth.
 	})
 }
 
-func create_tokens(user goth.User, w http.ResponseWriter) ([]byte, []byte, error) {
-	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"email": user.Email,
-	})
-
-	refreshTokenString, err := refreshToken.SignedString([]byte("add a real secret"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return nil, nil, err
-	}
-
-	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"email": user.Email,
-	})
-
-	accessTokenString, err := accessToken.SignedString([]byte("add a real secret"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return nil, nil, err
-	}
-
-	return []byte(refreshTokenString), []byte(accessTokenString), nil
-}
-
 // Note that the URLs to authenticate with the various providers are different as
 // well.
 var indexTemplate = `
-<p><a href="/auth?provider=twitter">Log in with Twitter</a></p>
-<p><a href="/auth?provider=facebook">Log in with Facebook</a></p>
-<p><a href="/auth?provider=google">Log in with Google</a></p>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login Page</title>
+    <link rel="stylesheet" type="text/css" href="/static/style.css">
+</head>
+<body>
+    <div class="login-container">
+        <h2>Login</h2>
+        <form action="/login" method="POST">
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" required><br>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required><br>
+            <button class="login-button" type="submit">Login</button>
+        </form>
+		<button class="google" onclick="location.href='/auth?provider=google'">Log in with Google</a></button>
+    </div>
+</body>
+</html>
 `
 
 var userTemplate = `
