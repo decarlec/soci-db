@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Soci</title>
+    <link rel="stylesheet" type="text/css" href="/static/style.css">
+</head>
+<body>
+    <h1 class="welcome-header">Welcome to Soci!</h1>
+    <div class="login-container">
+        <h2>Login</h2>
+        <form action="/login" method="POST">
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" required><br>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required><br>
+            <button class="login-button" type="submit">Login</button>
+        </form>
+        <button class="google" onclick="location.href='/auth?provider=google'">Log in with Google</button>
+    </div>
+</body>
+</html> 

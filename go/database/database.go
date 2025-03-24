@@ -47,14 +47,10 @@ func (db *Database) CreateUser(ctx context.Context, user User) (*User, error) {
 	session := db.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
-	//Get user in shape!
 	if user.Id == "" {
 		user.Id = uuid.NewString()
 	}
 
-	//TODO: check if username exists to ensure unique usernames/emails?
-
-	//Hash the users password.
 	result, err := session.Run(ctx,
 		`CREATE (u:User {
 			id: $id,
@@ -65,26 +61,27 @@ func (db *Database) CreateUser(ctx context.Context, user User) (*User, error) {
 			external_auth_id: $external_auth_id
 		}) 
 		RETURN u`,
-
 		map[string]any{
 			"id":            user.Id,
 			"username":      user.Username,
 			"email":         user.Email,
 			"password_hash": string(user.PasswordHash),
 			//			"created_at": time.Now(),
-			"external_auth_provider": user.ExternalAuthProvider, //Auth provider eg. google
-			"external_auth_id":       user.ExternalAuthID,       //Auth provider user id
+			"external_auth_provider": user.ExternalAuthProvider,
+			"external_auth_id":       user.ExternalAuthID,
 		})
 
 	if err != nil {
-		panic(err)
+		log.Printf("Failed to create user: %v", err)
+		return nil, err
 	}
 
 	if result.Next(ctx) {
 		log.Printf("Created user: %v", result.Record())
 		return &user, nil
 	}
-	return nil, result.Err()
+	log.Printf("No user was created")
+	return nil, errors.New("no user was created")
 }
 
 func (db *Database) DeleteUser(ctx context.Context, username string) error {
@@ -101,11 +98,11 @@ func (db *Database) DeleteUser(ctx context.Context, username string) error {
 		})
 
 	if err != nil {
-		panic(err)
+		log.Printf("Failed to delete user: %v", err)
+		return err
 	}
 
-	log.Printf("deleted user: %v", username)
-
+	log.Printf("Deleted user: %v", username)
 	return result.Err()
 }
 
@@ -125,11 +122,13 @@ func (db *Database) GetGothicUser(ctx context.Context, user goth.User) (*User, e
 		})
 
 	if err != nil {
-		panic(err)
+		log.Printf("Failed to query gothic user: %v", err)
+		return nil, err
 	}
 
 	record, err := result.Single(ctx)
 	if err != nil {
+		log.Printf("Failed to get gothic user: %v", err)
 		return nil, err
 	}
 
@@ -139,8 +138,6 @@ func (db *Database) GetGothicUser(ctx context.Context, user goth.User) (*User, e
 func (db *Database) GetUserWithName(ctx context.Context, username string) (*User, error) {
 	session := db.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
 	defer session.Close(ctx)
-
-	log.Println("Get User With Name")
 
 	result, err := session.Run(ctx,
 		`MATCH (user:User {
@@ -152,11 +149,13 @@ func (db *Database) GetUserWithName(ctx context.Context, username string) (*User
 		})
 
 	if err != nil {
-		panic(err)
+		log.Printf("Failed to query user: %v", err)
+		return nil, err
 	}
 
 	record, err := result.Single(ctx)
 	if err != nil {
+		log.Printf("Failed to get user: %v", err)
 		return nil, err
 	}
 
@@ -166,6 +165,7 @@ func (db *Database) GetUserWithName(ctx context.Context, username string) (*User
 func decodeUserResult(record *neo4j.Record) (*User, error) {
 	userRecord, ok := record.Get("user")
 	if !ok {
+		log.Printf("Could not get user record")
 		return nil, errors.New("could not get user record")
 	}
 

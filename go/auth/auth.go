@@ -12,8 +12,6 @@ import (
 	"sociapi.com/main/database"
 )
 
-var dbName = "neo4j"
-
 type AuthService struct {
 	db database.Database
 }
@@ -29,16 +27,13 @@ func (authService *AuthService) Login(ctx context.Context, username string, pass
 	if err != nil {
 		return err
 	}
-	log.Println(user.Username)
-
-	log.Println(user.PasswordHash)
 
 	//check hash against password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return err
 	}
 
-	log.Println("Successfull login")
+	log.Println("Successful login")
 	return nil
 }
 
