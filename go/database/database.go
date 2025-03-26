@@ -22,7 +22,7 @@ type PasswordHash string
 func NewPasswordHash(password string) PasswordHash {
 	hashString, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		panic(err)
+		log.Panicf("Could not create password hash: %v", err)
 	}
 	return PasswordHash(hashString)
 }
@@ -37,6 +37,7 @@ type User struct {
 	ExternalAuthID       string
 	AccessToken          string
 	RefreshToken         string
+	RefreshTokenVersion  int // Used to invalidate access
 }
 
 func NewDatabase(driver neo4j.DriverWithContext) *Database {
@@ -59,6 +60,7 @@ func (db *Database) CreateUser(ctx context.Context, user User) (*User, error) {
 			password_hash: $password_hash,
 			external_auth_provider: $external_auth_provider,
 			external_auth_id: $external_auth_id
+			refresh_token_version: $refresh_token_version
 		}) 
 		RETURN u`,
 		map[string]any{
@@ -67,8 +69,9 @@ func (db *Database) CreateUser(ctx context.Context, user User) (*User, error) {
 			"email":         user.Email,
 			"password_hash": string(user.PasswordHash),
 			//			"created_at": time.Now(),
-			"external_auth_provider": user.ExternalAuthProvider,
-			"external_auth_id":       user.ExternalAuthID,
+			"external_auth_provider": user.ExternalAuthProvider, //Auth provider eg. google
+			"external_auth_id":       user.ExternalAuthID,       //Auth provider user id
+			"refresh_token_version":  user.RefreshTokenVersion,  //Auth provider user id
 		})
 
 	if err != nil {
@@ -79,6 +82,59 @@ func (db *Database) CreateUser(ctx context.Context, user User) (*User, error) {
 	if result.Next(ctx) {
 		log.Printf("Created user: %v", result.Record())
 		return &user, nil
+	}
+	log.Printf("No user was created")
+	return nil, errors.New("no user was created")
+}
+
+func (db *Database) UpdateTokens(ctx context.Context, username string, refreshToken *string, accessToken *string) (*User, error) {
+	session := db.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+
+	result, err := session.Run(ctx,
+		`MATCH (u:User {
+			username: $username
+		})
+		SET u.refresh_token=$refresh_token, u.access_token=$access_token`,
+		map[string]any{
+			"refresh_token": refreshToken,
+			"access_token":  accessToken,
+		})
+
+	if err != nil {
+		log.Printf("Failed to create user: %v", err)
+		return nil, err
+	}
+
+	if result.Next(ctx) {
+		log.Printf("Created user: %v", result.Record())
+		return nil, nil
+	}
+	log.Printf("No user was created")
+	return nil, errors.New("no user was created")
+}
+
+func (db *Database) UpdateAccessToken(ctx context.Context, username string, accessToken *string) (*User, error) {
+	session := db.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+
+	result, err := session.Run(ctx,
+		`MATCH (u:User {
+			username: $username
+		})
+		SET u.access_token=$access_token`,
+		map[string]any{
+			"access_token": accessToken,
+		})
+
+	if err != nil {
+		log.Printf("Failed to create user: %v", err)
+		return nil, err
+	}
+
+	if result.Next(ctx) {
+		log.Printf("Created user: %v", result.Record())
+		return nil, nil
 	}
 	log.Printf("No user was created")
 	return nil, errors.New("no user was created")
@@ -178,5 +234,8 @@ func decodeUserResult(record *neo4j.Record) (*User, error) {
 		PasswordHash:         PasswordHash(userAttributes["password_hash"].(string)),
 		ExternalAuthProvider: userAttributes["external_auth_provider"].(string),
 		ExternalAuthID:       userAttributes["external_auth_id"].(string),
+		RefreshToken:         userAttributes["refresh_token"].(string),
+		AccessToken:          userAttributes["access_token"].(string),
+		RefreshTokenVersion:  userAttributes["refresh_token_version"].(int),
 	}, nil
 }

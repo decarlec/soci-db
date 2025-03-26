@@ -3,14 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
 	"github.com/lpernett/godotenv"
 	"github.com/markbates/goth"
@@ -49,16 +52,63 @@ func NewServer(ctx context.Context, db *database.Database, auth *auth.AuthServic
 
 func (s *Server) setupRoutes() {
 	s.router.Use(middleware.Logger)
+	//s.router.Use(middleware.Recoverer)
+	//s.router.Use(middleware.Timeout(60 * time.Second))
 
-	// Static files
+	//Protected Routes
+	s.router.Group(func(r chi.Router) {
+		r.Use(AuthMiddleWare)
+		r.HandleFunc("/protected", s.handleProtected)
+	})
+
+	//TODO: Why these defaults?
+	// s.router.Use(middleware.RequestID)
+	// s.router.Use(middleware.RealIP)
 	fs := http.FileServer(http.Dir("static"))
-	s.router.Handle("/static/*", http.StripPrefix("/static", fs))
 
-	// Routes
-	s.router.Get("/", s.handleHome)
-	s.router.Post("/login", handleLogin(s.auth))
-	s.router.HandleFunc("/auth", handleAuth)
-	s.router.HandleFunc("/auth/callback", handleAuthCallback(s.db, s.auth))
+	s.router.Group(func(r chi.Router) {
+		// Static files
+		r.Handle("/static/*", http.StripPrefix("/static", fs))
+
+		// Public Routes
+		r.Get("/", s.handleHome)
+		r.Post("/login", handleLogin(s.auth))
+		r.HandleFunc("/auth", handleAuth)
+		r.HandleFunc("/auth/callback", handleAuthCallback(s.db, s.auth))
+
+	})
+
+}
+
+func AuthMiddleWare(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Missing auth header.", http.StatusUnauthorized)
+			return
+		}
+
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			http.Error(w, "Invalid auth header format", http.StatusUnauthorized)
+		}
+
+		tokenString := parts[1]
+
+		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+			return []byte(os.Getenv("ACCESS_TOKEN_SECRET")), nil
+		})
+
+		if err != nil {
+			http.Error(w, "Invalid access token.", http.StatusUnauthorized)
+			return
+		}
+
+		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			log.Printf("User logged in with claims: %v", claims)
+			handler.ServeHTTP(w, r)
+		}
+	})
 }
 
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -68,17 +118,60 @@ func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleProtected(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("WOW, you're official! 🙀"))
+}
+
 func handleLogin(auth *auth.AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		err := auth.Login(r.Context(), r.FormValue("username"), r.FormValue("password"))
+		user, err := auth.AuthenticateUser(r.Context(), r.FormValue("username"), r.FormValue("password"))
 		if err != nil {
 			http.Error(w, "Auth failed 😿", http.StatusUnauthorized)
 			return
 		}
+
+		refresh, err := auth.GenerateRefreshToken(user)
+		if err != nil {
+			http.Error(w, "Auth failed 😿, couldn't generate refresh token", http.StatusUnauthorized)
+			return
+		}
+
+		access, err := auth.GenerateAccessToken(user)
+		if err != nil {
+			http.Error(w, "Auth failed 😿, couldn't generate access token", http.StatusUnauthorized)
+			return
+		}
+
+		w.Header().Add("Authorization", fmt.Sprintf("Bearer %v", access))
+		w.Write(refresh)
+
+		// rCookie := http.Cookie{
+		// 	Name:     "refreshCookie",
+		// 	Value:    string(refresh),
+		// 	Path:     "/",
+		// 	MaxAge:   3600,
+		// 	HttpOnly: true,
+		// 	Secure:   true,
+		// 	SameSite: http.SameSiteLaxMode,
+		// }
+
+		// aCookie := http.Cookie{
+		// 	Name:     "accessCookie",
+		// 	Value:    string(access),
+		// 	Path:     "/",
+		// 	MaxAge:   3600,
+		// 	HttpOnly: true,
+		// 	Secure:   true,
+		// 	SameSite: http.SameSiteLaxMode,
+		// }
+
+		// http.SetCookie(w, &rCookie)
+		// http.SetCookie(w, &aCookie)
+
 		w.Write([]byte("success! 😸"))
 	}
 }
@@ -102,9 +195,15 @@ func handleAuthCallback(db *database.Database, auth *auth.AuthService) http.Hand
 			return
 		}
 
-		refresh, access, err := auth.GenerateTokens(gothUser, w)
+		refresh, err := auth.GenerateRefreshToken(appUser)
 		if err != nil {
-			http.Error(w, "Failed to generate tokens", http.StatusInternalServerError)
+			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			return
+		}
+
+		access, err := auth.GenerateAccessToken(appUser)
+		if err != nil {
+			http.Error(w, "Failed to access token", http.StatusInternalServerError)
 			return
 		}
 
@@ -121,6 +220,7 @@ func handleAuthCallback(db *database.Database, auth *auth.AuthService) http.Hand
 		}
 
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Add("Authorization", fmt.Sprintf("Bearer %v", access))
 		w.Write(userJson)
 		w.Write(refresh)
 		w.Write(access)

@@ -28,5 +28,5 @@ func Create_user_and_login(db *database.Database, auth *auth.AuthService) {
 
 	// Login as new user
 	log.Println("logging in")
-	auth.Login(context.Background(), username, password)
+	auth.AuthenticateUser(context.Background(), username, password)
 }
