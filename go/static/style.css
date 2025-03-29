@@ -54,3 +54,74 @@ input[type="password"] {
     justify-self: center;
     margin-top: 15px;
 }
+
+.test-container {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.test-button {
+    background-color: #4CAF50;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.test-button:hover {
+    background-color: #45a049;
+}
+
+/* Loading spinner */
+.loading-spinner {
+    display: none;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Button states */
+.login-button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+.button-text {
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* Protected page styles */
+.protected-container {
+    max-width: 800px;
+    margin: 50px auto;
+    padding: 20px;
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.protected-container h1 {
+    color: #333;
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+#content {
+    padding: 20px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    min-height: 200px;
+}

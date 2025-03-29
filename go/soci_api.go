@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
-	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
 	"github.com/lpernett/godotenv"
 	"github.com/markbates/goth"
@@ -75,13 +74,13 @@ func (s *Server) setupRoutes() {
 		r.Post("/login", handleLogin(s.auth))
 		r.HandleFunc("/auth", handleAuth)
 		r.HandleFunc("/auth/callback", handleAuthCallback(s.db, s.auth))
-
 	})
 
 }
 
 func AuthMiddleWare(handler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Handling auth middleware")
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
 			http.Error(w, "Missing auth header.", http.StatusUnauthorized)
@@ -93,21 +92,21 @@ func AuthMiddleWare(handler http.Handler) http.Handler {
 			http.Error(w, "Invalid auth header format", http.StatusUnauthorized)
 		}
 
-		tokenString := parts[1]
+		// tokenString := parts[1]
 
-		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return []byte(os.Getenv("ACCESS_TOKEN_SECRET")), nil
-		})
+		// token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// 	return []byte(os.Getenv("ACCESS_TOKEN_SECRET")), nil
+		// })
 
-		if err != nil {
-			http.Error(w, "Invalid access token.", http.StatusUnauthorized)
-			return
-		}
+		// if err != nil {
+		// 	http.Error(w, "Invalid access token.", http.StatusUnauthorized)
+		// 	return
+		// }
 
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			log.Printf("User logged in with claims: %v", claims)
-			handler.ServeHTTP(w, r)
-		}
+		// if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		// 	log.Printf("User logged in with claims: %v", claims)
+		// 	handler.ServeHTTP(w, r)
+		// }
 	})
 }
 
@@ -146,33 +145,11 @@ func handleLogin(auth *auth.AuthService) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Add("Authorization", fmt.Sprintf("Bearer %v", access))
-		w.Write(refresh)
-
-		// rCookie := http.Cookie{
-		// 	Name:     "refreshCookie",
-		// 	Value:    string(refresh),
-		// 	Path:     "/",
-		// 	MaxAge:   3600,
-		// 	HttpOnly: true,
-		// 	Secure:   true,
-		// 	SameSite: http.SameSiteLaxMode,
-		// }
-
-		// aCookie := http.Cookie{
-		// 	Name:     "accessCookie",
-		// 	Value:    string(access),
-		// 	Path:     "/",
-		// 	MaxAge:   3600,
-		// 	HttpOnly: true,
-		// 	Secure:   true,
-		// 	SameSite: http.SameSiteLaxMode,
-		// }
-
-		// http.SetCookie(w, &rCookie)
-		// http.SetCookie(w, &aCookie)
-
-		w.Write([]byte("success! 😸"))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"access_token":  string(access),
+			"refresh_token": string(refresh),
+		})
 	}
 }
 
@@ -182,17 +159,26 @@ func handleAuth(w http.ResponseWriter, r *http.Request) {
 
 func handleAuthCallback(db *database.Database, auth *auth.AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		gothUser, err := gothic.CompleteUserAuth(w, r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
+		var appUser *database.User
+		var gothUser *goth.User
+		var err error
 
-		log.Printf("creating user: %v", gothUser)
-		appUser, err := findOrCreateUser(r.Context(), db, gothUser)
-		if err != nil {
-			http.Error(w, "Failed to create user", http.StatusInternalServerError)
-			return
+		if r.PathValue("provider") == "google" {
+			gothUser, err := gothic.CompleteUserAuth(w, r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+
+			log.Printf("creating user: %v", gothUser)
+			appUser, err = findOrCreateUser(r.Context(), db, gothUser)
+			if err != nil {
+				http.Error(w, "Failed to create user", http.StatusInternalServerError)
+				return
+			}
+		} else {
+			//TODO: get user
+			appUser = &database.User{}
 		}
 
 		refresh, err := auth.GenerateRefreshToken(appUser)
@@ -208,9 +194,11 @@ func handleAuthCallback(db *database.Database, auth *auth.AuthService) http.Hand
 		}
 
 		templates := template.Must(template.ParseFiles(filepath.Join("templates", "user.html")))
-		if err := templates.ExecuteTemplate(w, "user.html", gothUser); err != nil {
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
+		if gothUser != nil {
+			if err := templates.ExecuteTemplate(w, "user.html", gothUser); err != nil {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		userJson, err := json.Marshal(appUser)

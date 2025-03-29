@@ -8,14 +8,58 @@
     <h1 class="welcome-header">Welcome to Soci!</h1>
     <div class="login-container">
         <h2>Login</h2>
-        <form action="/login" method="POST">
+        <form id="loginForm">
             <label for="username">Username:</label>
             <input type="text" id="username" name="username" required><br>
             <label for="password">Password:</label>
             <input type="password" id="password" name="password" required><br>
-            <button class="login-button" type="submit">Login</button>
+            <button class="login-button" type="submit" id="loginButton">
+                <span class="button-text">Login</span>
+                <span class="loading-spinner"></span>
+            </button>
         </form>
         <button class="google" onclick="location.href='/auth?provider=google'">Log in with Google</button>
     </div>
+
+    <script>
+        // Handle login form submission
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const button = document.getElementById('loginButton');
+            const buttonText = button.querySelector('.button-text');
+            const spinner = button.querySelector('.loading-spinner');
+            
+            // Show loading state
+            button.disabled = true;
+            buttonText.style.display = 'none';
+            spinner.style.display = 'inline-block';
+            
+            const formData = new FormData(e.target);
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Login failed');
+                }
+                
+                const data = await response.json();
+                localStorage.setItem('access_token', data.access_token);
+                localStorage.setItem('refresh_token', data.refresh_token);
+                
+                // Redirect to protected route with token in header
+                window.location.href = '/protected';
+            } catch (error) {
+                // Reset button state on error
+                button.disabled = false;
+                buttonText.style.display = 'inline-block';
+                spinner.style.display = 'none';
+                alert('Error: ' + error.message);
+            }
+        });
+    </script>
 </body>
 </html> 

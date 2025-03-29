@@ -221,21 +221,35 @@ func (db *Database) GetUserWithName(ctx context.Context, username string) (*User
 func decodeUserResult(record *neo4j.Record) (*User, error) {
 	userRecord, ok := record.Get("user")
 	if !ok {
-		log.Printf("Could not get user record")
 		return nil, errors.New("could not get user record")
 	}
 
 	userAttributes := userRecord.(dbtype.Node).Props
+	user := &User{}
 
-	return &User{
-		Id:                   userAttributes["id"].(string),
-		Username:             userAttributes["username"].(string),
-		Email:                userAttributes["email"].(string),
-		PasswordHash:         PasswordHash(userAttributes["password_hash"].(string)),
-		ExternalAuthProvider: userAttributes["external_auth_provider"].(string),
-		ExternalAuthID:       userAttributes["external_auth_id"].(string),
-		RefreshToken:         userAttributes["refresh_token"].(string),
-		AccessToken:          userAttributes["access_token"].(string),
-		RefreshTokenVersion:  userAttributes["refresh_token_version"].(int),
-	}, nil
+	// Required fields
+	if id, ok := userAttributes["id"].(string); ok {
+		user.Id = id
+	} else {
+		return nil, errors.New("missing required field: id")
+	}
+
+	// Optional fields
+	if username, ok := userAttributes["username"].(string); ok {
+		user.Username = username
+	}
+	if email, ok := userAttributes["email"].(string); ok {
+		user.Email = email
+	}
+	if passwordHash, ok := userAttributes["password_hash"].(string); ok {
+		user.PasswordHash = PasswordHash(passwordHash)
+	}
+	if externalAuthProvider, ok := userAttributes["external_auth_provider"].(string); ok {
+		user.ExternalAuthProvider = externalAuthProvider
+	}
+	if externalAuthID, ok := userAttributes["external_auth_id"].(string); ok {
+		user.ExternalAuthID = externalAuthID
+	}
+
+	return user, nil
 }
